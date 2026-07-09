@@ -15,6 +15,7 @@ CloudTrail logs all account activity to a dedicated S3 bucket. Wazuh, running on
 
 ## Environment Setup
 **CloudTrail configuration** : multi-region trail, management events only, delivering to a dedicated S3 bucket with a scoped bucket policy restricted to the CloudTrail service principal.
+![image alt](https://github.com/abolarin812/AWS-IAM-Privilege-Escalation-Detection-with-Wazuh/blob/4a361a151fdd8e3da3d51d91d7b10bd81683be18/Images/cloudtrail-trail-configuration.png)
 
 ### Tools Used
 [Bullet Points - Remove this afterwards]
