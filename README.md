@@ -198,11 +198,11 @@ Live simulation of the full attack chain, executed against the real deployed Clo
 
 **The** rule cannot distinguish a malicious rollback from a legitimate administrative one (e.g., a genuine policy revert during incident response). In a production deployment this would require either a known-identity allowlist or a broader behavioral baseline, neither of which was in scope here.
 
-**Detection** latency is bound by S3 polling interval (5 minutes) plus CloudTrail's own delivery lag (typically 5–10 minutes). A production deployment would benefit from event-driven ingestion via SNS/SQS instead of polling.
+**Detection** latency is bound by S3 polling interval (5 minutes) plus CloudTrail's own delivery lag (typically 5–10 minutes). A production deployment would benefit from event-driven ingestion via SNS/SQS instead of polling, this removes wazuh S3 polling interval but not CloudTrail's own delivery lag.
 
 ## What a Production Deployment Would Need
 
-**Event-driven log ingestion** (SNS → SQS → Wazuh) instead of interval polling, to reduce detection latency
+**Event-driven log ingestion** (SNS → SQS → Wazuh) instead of interval polling, to reduce detection latency.
 
 **A CSPM-style process** to maintain an up-to-date inventory of which IAM roles/policies are actually privilege-equivalent, since CloudTrail alone cannot express "this specific role is dangerous," only "this action occurred"
 
