@@ -1,8 +1,26 @@
 # AWS IAM Privilege Escalation Detection with Wazuh
 This is a detection engineering project simulating a real IAM privilege escalation technique in AWS and building custom Wazuh detection logic to catch it, with a focus on understanding why the underlying misconfiguration is exploitable.
 
+## Table of Contents
+
+- [Objective](#objective)
+- [Prerequisites](#prerequisites)
+- [Architecture](#architecture)
+- [Environment Setup](#environment-setup)
+- [The Vulnerability](#the-vulnerability)
+- [Detection Engineering](#detection-engineering)
+  - [Validating Existing Coverage Before Building Anything](#validating-existing-coverage-before-building-anything)
+  - [Design Decision](#design-decision)
+  - [Final Detection Rule](#final-detection-rule)
+- [Detection Result](#detection-result)
+- [MITRE ATT&CK Mapping](#mitre-attck-mapping)
+- [SOC Analyst Response Guidance](#soc-analyst-response-guidance)
+- [Known Limitations](#known-limitations)
+- [What a Production Deployment Would Need](#what-a-production-deployment-would-need)
+
 ## Objective
 The objective is to simulate a privilege escalation attack in AWS using a deliberately vulnerable environment (Rhino Security Lab Cloudgoat), ingest the activity into a SIEM (Wazuh) for full visibility, and build detection logic that catches the technique, including validating whether existing default detection coverage was sufficient before writing anything custom.
+
 
 ## Prerequisites
  - AWS account
