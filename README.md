@@ -172,7 +172,7 @@ The final design detects the decisive action directly, treating `SetDefaultPolic
 
 This rule fires independently of, and in addition to, the default rule 80202 match on the same event, giving the analyst both a generic low-severity alert and a properly contextualized, higher-severity, MITRE-tagged one.
 
-### Detection Result
+## Detection Result
 
 Live simulation of the full attack chain, executed against the real deployed CloudGoat environment, produced a confirmed alert in the Wazuh dashboard under rule 100013 at the moment of privilege escalation.
 
