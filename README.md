@@ -183,7 +183,7 @@ Live simulation of the full attack chain, executed against the real deployed Clo
 | Stage | Technique | ID |
 |-------|-----------|----|
 | Enumeration | Permission Groups Discovery | `T1069` |
-| Escalation | Abuse Elevation Control Mechanism | `T1548.003` |
+| Escalation | Abuse Elevation Control Mechanism | `T1548` |
 
 ## SOC Analyst Response Guidance
 **Triage** : Confirm whether the identity that called SetDefaultPolicyVersion normally performs IAM policy management. A one-off call from an identity with no history of touching IAM policy versions warrants immediate escalation.
