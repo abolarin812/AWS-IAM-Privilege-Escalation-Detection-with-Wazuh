@@ -186,9 +186,9 @@ Live simulation of the full attack chain, executed against the real deployed Clo
 | Escalation | Abuse Elevation Control Mechanism | `T1548.003` |
 
 ## SOC Analyst Response Guidance
-**- Triage** : Confirm whether the identity that called SetDefaultPolicyVersion normally performs IAM policy management. A one-off call from an identity with no history of touching IAM policy versions warrants immediate escalation.
-**- Investigation** : Pull the full CloudTrail history for the calling identity across the preceding 15–30 minutes. Look specifically for ListPolicyVersions and GetPolicyVersion calls against the same policy ARN immediately prior, this is the enumeration pattern that precedes this technique, even though it is not captured by the automated rule itself.
-**- Containment** : If confirmed malicious, immediately roll the policy back to its prior (non-privileged) default version, rotate or disable the identity's credentials, and review CloudTrail for any actions taken under the elevated policy between the rollback and detection.
+**Triage** : Confirm whether the identity that called SetDefaultPolicyVersion normally performs IAM policy management. A one-off call from an identity with no history of touching IAM policy versions warrants immediate escalation.
+**Investigation** : Pull the full CloudTrail history for the calling identity across the preceding 15–30 minutes. Look specifically for ListPolicyVersions and GetPolicyVersion calls against the same policy ARN immediately prior, this is the enumeration pattern that precedes this technique, even though it is not captured by the automated rule itself.
+**Containment** : If confirmed malicious, immediately roll the policy back to its prior (non-privileged) default version, rotate or disable the identity's credentials, and review CloudTrail for any actions taken under the elevated policy between the rollback and detection.
 
 ## Known Limitations
 
