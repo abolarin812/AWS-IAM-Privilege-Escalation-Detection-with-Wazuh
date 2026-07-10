@@ -13,6 +13,32 @@ The objective is to simulate a privilege escalation attack in AWS using a delibe
 ## Architecture
 CloudTrail logs all account activity to a dedicated S3 bucket. Wazuh, running on a separate EC2 instance with a least-privilege instance role (no static credentials), polls that bucket via its native AWS S3 module, decodes CloudTrail events, and evaluates them against both Wazuh's default ruleset and a custom detection rule built specifically for this technique.
 
+```
+AWS Account (370361598235)
+|
+|-- IAM
+|   |-- cg-raynor-policy-cgid5hqx5w9xak    (vulnerable policy, 5 versions, v3 = admin)
+|   `-- Specific-S3-Cloudtrail-Bucket-Access   (Wazuh instance policy, least privilege)
+|
+|-- CloudTrail
+|   `-- Trail (multi-region (us-east-1 and us-north-1), management events only) --> delivers to S3
+|
+|-- S3
+|   `-- aws-cloudtrail-wazuh-logs-s3/
+|       `-- AWSLogs/370361598235/CloudTrail/us-east-1/2026/07/09/*.json.gz
+|       `-- AWSLogs/370361598235/CloudTrail/us-north-1/2026/07/09/*.json.gz
+`-- EC2
+    `-- Wazuh Manager Instance
+        |-- IAM Instance Role (s3:ListBucket, s3:GetObject, scoped to bucket only)
+        |-- ossec.conf: <wodle name="aws-s3"> (polls S3 every 5 min)
+        |-- archives.json (decoded CloudTrail events)
+        |-- local_rules.xml: rule 100013 (detects SetDefaultPolicyVersion, T1548.003)
+        |-- alerts.json (rule matches: 80202 + 100013)
+        `-- Wazuh Dashboard: Security Events -> rule.id: 100013 (confirmed alert)
+
+Kali Linux (Attacker) --> CloudGoat --> Raynor identity --> AWS IAM API calls
+```
+
 ## Environment Setup
 **CloudTrail configuration** : multi-region trail, management events only, delivering to a dedicated S3 bucket with a scoped bucket policy restricted to the CloudTrail service principal.
 
@@ -99,8 +125,68 @@ The attacker's identity, Raynor, holds an IAM policy with three permissions atta
 *Fig 14: Privilege Escalation Execution*
 
 
+## Detection Engineering
 
+### Validating existing coverage before building anything
 
+Before writing a custom rule, Wazuh's default AWS ruleset (`0350-amazon_rules.xml`) was tested directly against real, decoded CloudTrail events for each API call in the attack chain using `wazuh-logtest`. `ListPolicyVersions` and `GetPolicyVersion` matched only the generic parent rule (80200, level 0), confirming no dedicated detection exists for these calls, they are logged but never surfaced as an alert. `SetDefaultPolicyVersion` was separately confirmed present in Wazuh's aws-eventnames lookup list, meaning it does receive generic coverage under rule 80202 (level 3, no MITRE context, no severity weighting) even without any custom rule.
+
+### Design decision
+
+An earlier design attempted to detect the full three-step sequence (enumeration → inspection → rollback) using Wazuh's cross-event correlation directives (`if_matched_sid`, `same_field`). This approach was abandoned after extensive live testing: identical, correctly-formed events with matching identity fields and timestamps within the configured correlation window failed to trigger the correlated rule consistently, across multiple independent test runs, both via `wazuh-logtest` and against the live pipeline. Root cause was not conclusively isolated (rule load order, base-rule re-evaluation behavior, and live-vs-logtest field resolution were not individually ruled out), but the behavior was reproducible enough, and documented in principle by open Wazuh issues concerning `if_matched_sid` reliability, to treat as an unresolved constraint of the rule engine rather than a fixable configuration error within the available time.
+
+The final design detects the decisive action directly, treating `SetDefaultPolicyVersion` as the escalation event itself, rather than attempting to correlate the full behavioral sequence leading to it. This trades some context (the rule alone does not prove enumeration preceded it) for reliability.
+
+### Final detection rule
+
+```
+<group name="iam_privesc,cloudgoat,aws">
+  <rule id="100013" level="8">
+    <if_sid>80200</if_sid>
+    <field name="aws.eventName">^SetDefaultPolicyVersion$</field>
+    <description>AWS IAM SetDefaultPolicyVersion called, potential privilege escalation via policy version rollback</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+  </rule>
+</group>
+```
+
+This rule fires independently of, and in addition to, the default rule 80202 match on the same event, giving the analyst both a generic low-severity alert and a properly contextualized, higher-severity, MITRE-tagged one.
+
+### Detection Result
+
+Live simulation of the full attack chain, executed against the real deployed CloudGoat environment, produced a confirmed alert in the Wazuh dashboard under rule 100013 at the moment of privilege escalation.
+
+![image alt](https://github.com/abolarin812/AWS-IAM-Privilege-Escalation-Detection-with-Wazuh/blob/6eee0a9469a791c94ece6462c85d17819e0ac7ee/Images/wazuh-alert-rule-100013-triggered.png)
+
+## MITRE ATT&CK Mapping
+
+| Stage | Technique | ID |
+|-------|-----------|----|
+| Enumeration | Permission Groups Discovery | `T1069` |
+| Escalation | Abuse Elevation Control Mechanism | `T1548.003` |
+
+## SOC Analyst Response Guidance
+**- Triage** : Confirm whether the identity that called SetDefaultPolicyVersion normally performs IAM policy management. A one-off call from an identity with no history of touching IAM policy versions warrants immediate escalation.
+**- Investigation** : Pull the full CloudTrail history for the calling identity across the preceding 15–30 minutes. Look specifically for ListPolicyVersions and GetPolicyVersion calls against the same policy ARN immediately prior, this is the enumeration pattern that precedes this technique, even though it is not captured by the automated rule itself.
+**- Containment** : If confirmed malicious, immediately roll the policy back to its prior (non-privileged) default version, rotate or disable the identity's credentials, and review CloudTrail for any actions taken under the elevated policy between the rollback and detection.
+
+## Known Limitations
+
+**Detection** is scoped to the decisive action only; the enumeration steps that typically precede it are not independently correlated due to unresolved reliability issues with Wazuh's native cross-event correlation directives in this version (4.14.6).
+
+**The** rule cannot distinguish a malicious rollback from a legitimate administrative one (e.g., a genuine policy revert during incident response). In a production deployment this would require either a known-identity allowlist or a broader behavioral baseline, neither of which was in scope here.
+
+**Detection** latency is bound by S3 polling interval (5 minutes) plus CloudTrail's own delivery lag (typically 5–10 minutes). A production deployment would benefit from event-driven ingestion via SNS/SQS instead of polling.
+
+## What a Production Deployment Would Need
+
+**Event-driven log ingestion** (SNS → SQS → Wazuh) instead of interval polling, to reduce detection latency
+
+**A CSPM-style process** to maintain an up-to-date inventory of which IAM roles/policies are actually privilege-equivalent, since CloudTrail alone cannot express "this specific role is dangerous," only "this action occurred"
+
+**Root cause resolution** of the correlation rule reliability issue, or a compensating custom correlation script external to Wazuh's native rule engine, to restore full-sequence detection rather than single-event detection alone
 
 
 
