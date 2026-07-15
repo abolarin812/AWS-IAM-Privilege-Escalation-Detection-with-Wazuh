@@ -151,7 +151,7 @@ Before writing a custom rule, Wazuh's default AWS ruleset (`0350-amazon_rules.xm
 
 ### Design decision
 
-An earlier design attempted to detect the full three-step sequence (enumeration → inspection → rollback) using Wazuh's cross-event correlation directives (`if_matched_sid`, `same_field`). This approach was abandoned after extensive live testing: identical, correctly-formed events with matching identity fields and timestamps within the configured correlation window failed to trigger the correlated rule consistently, across multiple independent test runs, both via `wazuh-logtest` and against the live pipeline. Root cause was not conclusively isolated (rule load order, base-rule re-evaluation behavior, and live-vs-logtest field resolution were not individually ruled out), but the behavior was reproducible enough, and documented in principle by open Wazuh issues concerning `if_matched_sid` reliability, to treat as an unresolved constraint of the rule engine rather than a fixable configuration error within the available time.
+An earlier design attempted to detect the full three-step sequence (enumeration → inspection → rollback) using Wazuh's cross-event correlation directives `if_matched_sid`. This approach was abandoned after live testing revealed a structural mismatch between the mechanism and the use case. Wazuh's documentation specifies that `if_matched_sid` is designed to pair with frequency and timeframe, and that frequency has a hard minimum of two (2), meaning the correlated rule cannot fire until its match condition has been satisfied twice within the configured window. This directly conflicts with the threat model here (the privilege escalation technique only requires the attacker to execute the sequence once to fully succeed) so a rule built on Wazuh's documented correlation pattern would never fire against a real, single-occurrence attack. This was confirmed directly, a correctly sequenced, correctly timed live test with matching identity fields did not trigger the correlated rule, because the underlying pattern occurred once rather than twice. An earlier variant without frequency set at all was also tested and also failed to fire consistently, that variant's exact failure mode was not conclusively isolated, but given the confirmed frequency based limitation, cross event correlation via this mechanism was assessed as unsuitable for single occurrence attack detection and de-prioritized in favor of single event detection on the decisive action.
 
 The final design detects the decisive action directly, treating `SetDefaultPolicyVersion` as the escalation event itself, rather than attempting to correlate the full behavioral sequence leading to it. This trades some context (the rule alone does not prove enumeration preceded it) for reliability.
 
@@ -188,13 +188,13 @@ Live simulation of the full attack chain, executed against the real deployed Clo
 ## SOC Analyst Response Guidance
 **Triage** : Confirm whether the identity that called SetDefaultPolicyVersion normally performs IAM policy management. A one-off call from an identity with no history of touching IAM policy versions warrants immediate escalation.
 
-**Investigation** : Pull the full CloudTrail history for the calling identity across the preceding 15–30 minutes. Look specifically for ListPolicyVersions and GetPolicyVersion calls against the same policy ARN immediately prior, this is the enumeration pattern that precedes this technique, even though it is not captured by the automated rule itself.
+**Investigation** : Pull the full CloudTrail history for the calling identity across the preceding 15–30 minutes. Look specifically for **ListPolicyVersions** and **GetPolicyVersion** calls against the same policy ARN immediately prior, this is the enumeration pattern that precedes this technique, even though it is not captured by the automated rule itself.
 
 **Containment** : If confirmed malicious, immediately roll the policy back to its prior (non-privileged) default version, rotate or disable the identity's credentials, and review CloudTrail for any actions taken under the elevated policy between the rollback and detection.
 
 ## Known Limitations
 
-**Detection** is scoped to the decisive action only; the enumeration steps that typically precede it are not independently correlated due to unresolved reliability issues with Wazuh's native cross-event correlation directives in this version (4.14.6).
+**Detection** is scoped to the decisive action only; Multi-stage correlation was not implemented because Wazuh's native `if_matched_sid` correlation requires a minimum frequency of two, whereas this attack succeeds with a single execution of each step.
 
 **The** rule cannot distinguish a malicious rollback from a legitimate administrative one (e.g., a genuine policy revert during incident response). In a production deployment this would require either a known-identity allowlist or a broader behavioral baseline, neither of which was in scope here.
 
@@ -202,11 +202,11 @@ Live simulation of the full attack chain, executed against the real deployed Clo
 
 ## What a Production Deployment Would Need
 
-**Event-driven log ingestion** (SNS → SQS → Wazuh) instead of interval polling, to reduce detection latency.
+**Event-driven log ingestion** (SNS → SQS → Wazuh) instead of interval polling, to reduce detection latency that might be caused by wazuh polling time.
 
 **A CSPM-style process** to maintain an up-to-date inventory of which IAM roles/policies are actually privilege-equivalent, since CloudTrail alone cannot express "this specific role is dangerous," only "this action occurred"
 
-**Root cause resolution** of the correlation rule reliability issue, or a compensating custom correlation script external to Wazuh's native rule engine, to restore full-sequence detection rather than single-event detection alone
+**A custom correlation mechanism** external to Wazuh's native rule engine to detect the full attack sequence, as the native `if_matched_sid` correlation is unsuitable for single-occurrence attack chains.
 
 
 
